@@ -1,14 +1,29 @@
 from fastapi import FastAPI, File, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
+import uvicorn
 import numpy as np
 from io import BytesIO
 from PIL import Image
-import keras
-import uvicorn
+import tensorflow as tf
+import os
 
 app = FastAPI()
 
+origins = [
+    "http://localhost",
+    "http://localhost:3000",
+]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+script = os.path.realpath(__file__)
 #endpoint = "http://localhost:8501/v1/models/plant_disease_model:predict"
-MODEL = keras.models.load_model("./final_model.h5")
+MODEL = tf.keras.models.load_model(script[:-11] + "models/1")
 CLASS_NAMES = ['Apple___Apple_scab', 'Apple___Black_rot',
                'Apple___Cedar_apple_rust', 'Apple___healthy',
                'Blueberry___healthy', 'Cherry_(including_sour)___Powdery_mildew',
@@ -25,19 +40,20 @@ CLASS_NAMES = ['Apple___Apple_scab', 'Apple___Black_rot',
                'Tomato___Septoria_leaf_spot', 'Tomato___Spider_mites Two-spotted_spider_mite',
                'Tomato___Target_Spot', 'Tomato___Tomato_Yellow_Leaf_Curl_Virus',
                'Tomato___Tomato_mosaic_virus', 'Tomato___healthy']
-
 @app.get("/ping")
 async def ping():
     return "Hello, I am alive"
 
-def read_file_as_image(data) -> np.ndarray:
-    return np.array(Image.open(BytesIO(data)).resize((224, 224)))
+def read_file_as_image(data):
+    return Image.open(BytesIO(data))
 
 @app.post("/predict")
 async def predict(
     file: UploadFile = File(...)
 ):
     image = read_file_as_image(await file.read())
+    image = image.resize((256, 256))
+    image = np.array(image)
     img_batch = np.expand_dims(image, 0)
     predictions = MODEL.predict(img_batch)
     predicted_class = CLASS_NAMES[np.argmax(predictions[0])]
@@ -46,6 +62,7 @@ async def predict(
         'class': predicted_class,
         'confidence': float(confidence)
     }
+    
 
 if __name__ == '__main__':
     uvicorn.run(app, host = 'localhost', port = 8000)
